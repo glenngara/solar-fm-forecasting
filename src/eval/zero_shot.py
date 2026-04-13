@@ -85,42 +85,16 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     """Run TimesFM 2.5 zero-shot inference."""
     import timesfm
 
-    # Try different API versions (class names changed across releases)
-    tfm = None
-    for init_fn in [
-        lambda: timesfm.TimesFm(
-            hparams=timesfm.TimesFmHparams(
-                backend="gpu" if torch.cuda.is_available() else "cpu",
-                per_core_batch_size=32,
-                horizon_len=pred_len,
-            ),
-            checkpoint=timesfm.TimesFmCheckpoint(huggingface_repo_id=model_id),
-        ),
-        lambda: timesfm.TimesFM(
-            hparams=timesfm.TimesFMHparams(
-                backend="gpu" if torch.cuda.is_available() else "cpu",
-                per_core_batch_size=32,
-                horizon_len=pred_len,
-            ),
-            checkpoint=timesfm.TimesFMCheckpoint(huggingface_repo_id=model_id),
-        ),
-    ]:
-        try:
-            tfm = init_fn()
-            break
-        except AttributeError:
-            continue
-
-    if tfm is None:
-        # Last resort: list available classes
-        classes = [x for x in dir(timesfm) if 'time' in x.lower() or 'Time' in x]
-        raise ImportError(f"Could not find TimesFM class. Available: {classes}")
+    # TimesFM 2.5 uses TimesFM_2p5_200M_torch class
+    tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(model_id)
 
     context_array = np.array(contexts)
-    frequency_input = [0] * len(contexts)  # 0 = hourly
-    point_forecasts, _ = tfm.forecast(context_array, freq=frequency_input)
+    point_forecasts, _ = tfm.forecast(
+        inputs=list(context_array),
+        horizon=pred_len,
+    )
 
-    predictions = point_forecasts[:, :pred_len]
+    predictions = np.array(point_forecasts)[:, :pred_len]
 
     del tfm
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
