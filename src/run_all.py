@@ -22,7 +22,7 @@ STEPS = [
     ("data/download_nasa_power.py", "Download NASA POWER data for Laguna de Bay"),
     ("data/prepare_data.py", "Prepare train/val/test splits and forecast windows"),
     ("figures/eda.py", "Exploratory data analysis and figures"),
-    ("eval/zero_shot.py", "Zero-shot FM evaluation (Chronos, TimesFM, Moirai)"),
+    ("eval/zero_shot.py", "Zero-shot FM evaluation (Chronos-2, Chronos-T5, TimesFM 2.5, Moirai 2.0, TTM-R2)"),
     ("eval/baselines.py", "Traditional baseline models (XGBoost, LSTM)"),
     ("finetune/chronos_ft.py", "Fine-tune Chronos Small + Base"),
     ("finetune/ttm_ft.py", "Fine-tune TTM-R2"),
