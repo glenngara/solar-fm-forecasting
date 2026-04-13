@@ -131,10 +131,16 @@ def finetune_model(base_model, output_name, series_list):
         print("ERROR: No training samples created.")
         sys.exit(1)
 
+    # Use smaller batch size for Base model to avoid CUDA OOM
+    is_base = "base" in base_model.lower()
+    batch_size = 8 if is_base else 16
+    grad_accum = 2 if is_base else 1  # effective batch size stays the same
+
     training_args = TrainingArguments(
         output_dir=str(output_path),
         max_steps=MAX_STEPS,
-        per_device_train_batch_size=16,
+        per_device_train_batch_size=batch_size,
+        gradient_accumulation_steps=grad_accum,
         learning_rate=5e-5,
         lr_scheduler_type="cosine",
         warmup_ratio=0.05,
@@ -142,8 +148,8 @@ def finetune_model(base_model, output_name, series_list):
         optim="adamw_torch",
         logging_steps=100,
         save_steps=500,
-        save_total_limit=10,
-        fp16=False,
+        save_total_limit=3,
+        fp16=torch.cuda.is_available(),  # use fp16 on GPU to save memory
         dataloader_num_workers=0,
         remove_unused_columns=False,
         report_to="none",
