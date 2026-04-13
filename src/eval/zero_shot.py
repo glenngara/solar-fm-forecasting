@@ -85,21 +85,43 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     """Run TimesFM 2.5 zero-shot inference."""
     import timesfm
 
-    # TimesFM 2.5 — instantiate directly, then load checkpoint
-    tfm = timesfm.TimesFM_2p5_200M_torch(
-        hf_repo_id=model_id,
-    )
+    # TimesFM 2.5 — try multiple instantiation methods
+    tfm = None
+
+    # Method 1: No-arg constructor (auto-downloads from default repo)
+    try:
+        tfm = timesfm.TimesFM_2p5_200M_torch()
+    except Exception:
+        pass
+
+    # Method 2: Print available init args and try with common patterns
+    if tfm is None:
+        import inspect
+        sig = inspect.signature(timesfm.TimesFM_2p5_200M_torch.__init__)
+        params = list(sig.parameters.keys())
+        print(f"  TimesFM init params: {params}")
+
+        # Try with repo_id
+        for kwarg in ["repo_id", "model_id", "checkpoint", "pretrained_model_name_or_path"]:
+            if kwarg in params:
+                try:
+                    tfm = timesfm.TimesFM_2p5_200M_torch(**{kwarg: model_id})
+                    break
+                except Exception:
+                    continue
+
+    if tfm is None:
+        raise ImportError(f"Could not instantiate TimesFM_2p5_200M_torch")
 
     context_array = np.array(contexts)
+    # Try different forecast APIs
     try:
-        # Try the 2.5 API first
         point_forecasts, _ = tfm.forecast(
             inputs=list(context_array),
             horizon=pred_len,
         )
     except TypeError:
-        # Fall back to older forecast API
-        frequency_input = [0] * len(contexts)  # 0 = hourly
+        frequency_input = [0] * len(contexts)
         point_forecasts, _ = tfm.forecast(context_array, freq=frequency_input)
 
     predictions = np.array(point_forecasts)[:, :pred_len]
