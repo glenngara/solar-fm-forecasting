@@ -38,14 +38,17 @@ def evaluate_chronos2(model_id, contexts, pred_len):
     batch_size = 32
     for i in range(0, len(contexts), batch_size):
         batch = [torch.tensor(ctx, dtype=torch.float32) for ctx in contexts[i : i + batch_size]]
-        # Chronos-2 predict() does not accept num_samples
         forecast = pipeline.predict(batch, prediction_length=pred_len)
-        # Handle both quantile and sample outputs
-        if hasattr(forecast, 'median'):
-            pred_median = forecast.median(dim=1).values.numpy()
-        else:
-            pred_median = forecast.numpy() if hasattr(forecast, 'numpy') else np.array(forecast)
-        all_preds.append(pred_median)
+        # Chronos-2 output shape: (batch, num_series, num_samples, pred_len)
+        # Convert to numpy and take median across samples
+        f = forecast.numpy() if hasattr(forecast, 'numpy') else np.array(forecast)
+        # Squeeze extra dims and take median across sample dim
+        while f.ndim > 2:
+            if f.shape[1] == 1:
+                f = f.squeeze(1)  # remove num_series dim
+            else:
+                f = np.median(f, axis=-2)  # median across samples
+        all_preds.append(f)
 
     del pipeline
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
