@@ -113,13 +113,18 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     if tfm is None:
         raise ImportError(f"Could not instantiate TimesFM_2p5_200M_torch")
 
-    # Compile with device specification
-    device = get_device()
-    tfm.compile(timesfm.ForecastConfig(
-        max_context=CONTEXT_LENGTH,
-        max_horizon=pred_len,
-        backend=device,
-    ))
+    # Compile — inspect available config params
+    import inspect
+    fc_params = list(inspect.signature(timesfm.ForecastConfig.__init__).parameters.keys())
+    print(f"  ForecastConfig params: {fc_params}")
+
+    # Build config with only supported params
+    fc_kwargs = {}
+    if 'max_context' in fc_params:
+        fc_kwargs['max_context'] = CONTEXT_LENGTH
+    if 'max_horizon' in fc_params:
+        fc_kwargs['max_horizon'] = pred_len
+    tfm.compile(timesfm.ForecastConfig(**fc_kwargs))
 
     context_array = np.array(contexts)
     # Try different forecast APIs
