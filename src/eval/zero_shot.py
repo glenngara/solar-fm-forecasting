@@ -178,11 +178,14 @@ def evaluate_ttm(model_id, contexts, pred_len):
 
     device = get_device()
 
-    # TTM-R2 max prediction is ~30 steps. For longer horizons, use rolling prediction.
+    # TTM-R2 supports context lengths: 90, 512, 1536.
+    # Use 512-step variant so it can accept our full 168h context.
+    # Max prediction is ~30 steps — use rolling prediction for longer horizons.
+    TTM_CTX = 512
     ttm_pred_len = min(pred_len, 30)
     model = get_model(
         model_id,
-        context_length=min(CONTEXT_LENGTH, 512),  # TTM max context is 512
+        context_length=TTM_CTX,
         prediction_length=ttm_pred_len,
     )
     model = model.to(device).eval()
