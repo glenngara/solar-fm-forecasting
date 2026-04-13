@@ -85,14 +85,22 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     """Run TimesFM 2.5 zero-shot inference."""
     import timesfm
 
-    # TimesFM 2.5 uses TimesFM_2p5_200M_torch class
-    tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(model_id)
+    # TimesFM 2.5 — instantiate directly, then load checkpoint
+    tfm = timesfm.TimesFM_2p5_200M_torch(
+        hf_repo_id=model_id,
+    )
 
     context_array = np.array(contexts)
-    point_forecasts, _ = tfm.forecast(
-        inputs=list(context_array),
-        horizon=pred_len,
-    )
+    try:
+        # Try the 2.5 API first
+        point_forecasts, _ = tfm.forecast(
+            inputs=list(context_array),
+            horizon=pred_len,
+        )
+    except TypeError:
+        # Fall back to older forecast API
+        frequency_input = [0] * len(contexts)  # 0 = hourly
+        point_forecasts, _ = tfm.forecast(context_array, freq=frequency_input)
 
     predictions = np.array(point_forecasts)[:, :pred_len]
 
