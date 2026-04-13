@@ -115,9 +115,20 @@ def evaluate_timesfm(model_id, contexts, pred_len):
 
     # Compile the model before forecasting
     try:
-        tfm.compile()
-    except Exception:
-        pass
+        import inspect
+        compile_sig = inspect.signature(tfm.compile)
+        compile_params = list(compile_sig.parameters.keys())
+        print(f"  TimesFM compile params: {compile_params}")
+
+        if 'forecast_config' in compile_params or len(compile_params) > 1:
+            tfm.compile(timesfm.ForecastConfig(
+                max_context=CONTEXT_LENGTH,
+                max_horizon=pred_len,
+            ))
+        else:
+            tfm.compile()
+    except Exception as e:
+        print(f"  compile() failed: {e}, trying without...")
 
     context_array = np.array(contexts)
     # Try different forecast APIs
