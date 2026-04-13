@@ -208,6 +208,11 @@ def build_model_registry():
 
     # TTM-R2 zero-shot + fine-tuned
     models.append(("TTM-R2 (ZS)", "ttm", "ibm-granite/granite-timeseries-ttm-r2"))
+    for pred_len in PREDICTION_LENGTHS:
+        ft_path = MODELS_DIR / "ft-ttm-r2" / f"ttm_{pred_len}h"
+        if ft_path.exists():
+            models.append(("TTM-R2 (FT)", "ttm", ft_path))
+            break
 
     return models
 

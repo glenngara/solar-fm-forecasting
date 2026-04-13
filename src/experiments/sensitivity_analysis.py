@@ -131,7 +131,7 @@ def finetune_with_config(data_path, lr, steps, ctx_len):
 
 def evaluate_model(model_path, contexts, pred_len):
     """Run Chronos inference."""
-    from logger import get_device
+    from utils.logger import get_device
     device = get_device()
     pipeline = ChronosPipeline.from_pretrained(
         str(model_path), device_map=device, dtype=torch.float32,

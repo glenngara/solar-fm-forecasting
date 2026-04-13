@@ -101,7 +101,7 @@ def finetune_subset(n_months, data_path):
 
 def evaluate_model(model_path, contexts, pred_len):
     """Run inference."""
-    from logger import get_device
+    from utils.logger import get_device
     device = get_device()
     pipeline = ChronosPipeline.from_pretrained(
         str(model_path), device_map=device, dtype=torch.float32,
