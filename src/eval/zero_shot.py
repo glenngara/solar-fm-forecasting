@@ -113,15 +113,12 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     if tfm is None:
         raise ImportError(f"Could not instantiate TimesFM_2p5_200M_torch")
 
-    # Move to GPU if available
+    # Compile with device specification
     device = get_device()
-    if device == "cuda":
-        tfm = tfm.cuda()
-
-    # Compile the model before forecasting
     tfm.compile(timesfm.ForecastConfig(
         max_context=CONTEXT_LENGTH,
         max_horizon=pred_len,
+        backend=device,
     ))
 
     context_array = np.array(contexts)
