@@ -196,9 +196,15 @@ def evaluate_ttm(model_id, contexts, pred_len):
     for i in range(0, len(contexts), batch_size):
         batch_contexts = contexts[i : i + batch_size]
 
+        def _pad_context(ctx, target_len):
+            """Pad context to target_len with zeros on the left if shorter."""
+            if len(ctx) >= target_len:
+                return ctx[-target_len:]
+            return np.pad(ctx, (target_len - len(ctx), 0), mode='constant', constant_values=0)
+
         if pred_len <= ttm_pred_len:
             # Single-step prediction
-            batch = np.array([ctx[-ttm_ctx_len:] for ctx in batch_contexts], dtype=np.float32)
+            batch = np.array([_pad_context(ctx, ttm_ctx_len) for ctx in batch_contexts], dtype=np.float32)
             past_values = torch.tensor(batch).unsqueeze(-1).to(device)
             freq_token = torch.zeros(len(batch), dtype=torch.long, device=device)
 
@@ -218,7 +224,7 @@ def evaluate_ttm(model_id, contexts, pred_len):
             # Rolling prediction for longer horizons
             batch_preds = []
             for ctx in batch_contexts:
-                rolling_ctx = list(ctx[-ttm_ctx_len:])
+                rolling_ctx = list(_pad_context(ctx, ttm_ctx_len))
                 full_pred = []
                 remaining = pred_len
                 while remaining > 0:
