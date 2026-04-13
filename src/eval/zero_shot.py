@@ -113,6 +113,12 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     if tfm is None:
         raise ImportError(f"Could not instantiate TimesFM_2p5_200M_torch")
 
+    # Compile the model before forecasting
+    try:
+        tfm.compile()
+    except Exception:
+        pass
+
     context_array = np.array(contexts)
     # Try different forecast APIs
     try:
