@@ -85,17 +85,36 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     """Run TimesFM 2.5 zero-shot inference."""
     import timesfm
 
-    # Use the native timesfm API (not from_pretrained which has proxy issues)
-    tfm = timesfm.TimesFm(
-        hparams=timesfm.TimesFmHparams(
-            backend="gpu" if torch.cuda.is_available() else "cpu",
-            per_core_batch_size=32,
-            horizon_len=pred_len,
+    # Try different API versions (class names changed across releases)
+    tfm = None
+    for init_fn in [
+        lambda: timesfm.TimesFm(
+            hparams=timesfm.TimesFmHparams(
+                backend="gpu" if torch.cuda.is_available() else "cpu",
+                per_core_batch_size=32,
+                horizon_len=pred_len,
+            ),
+            checkpoint=timesfm.TimesFmCheckpoint(huggingface_repo_id=model_id),
         ),
-        checkpoint=timesfm.TimesFmCheckpoint(
-            huggingface_repo_id=model_id,
+        lambda: timesfm.TimesFM(
+            hparams=timesfm.TimesFMHparams(
+                backend="gpu" if torch.cuda.is_available() else "cpu",
+                per_core_batch_size=32,
+                horizon_len=pred_len,
+            ),
+            checkpoint=timesfm.TimesFMCheckpoint(huggingface_repo_id=model_id),
         ),
-    )
+    ]:
+        try:
+            tfm = init_fn()
+            break
+        except AttributeError:
+            continue
+
+    if tfm is None:
+        # Last resort: list available classes
+        classes = [x for x in dir(timesfm) if 'time' in x.lower() or 'Time' in x]
+        raise ImportError(f"Could not find TimesFM class. Available: {classes}")
 
     context_array = np.array(contexts)
     frequency_input = [0] * len(contexts)  # 0 = hourly
@@ -154,41 +173,70 @@ def evaluate_moirai2(model_id, contexts, pred_len):
 # ── TTM-R2 (IBM Granite) ────────────────────────────────────────────────────
 
 def evaluate_ttm(model_id, contexts, pred_len):
-    """Run TTM-R2 zero-shot inference."""
+    """Run TTM-R2 zero-shot inference with rolling prediction for longer horizons."""
     from tsfm_public.toolkit.get_model import get_model
 
     device = get_device()
+
+    # TTM-R2 max prediction is ~30 steps. For longer horizons, use rolling prediction.
+    ttm_pred_len = min(pred_len, 30)
     model = get_model(
         model_id,
-        context_length=CONTEXT_LENGTH,
-        prediction_length=pred_len,
+        context_length=min(CONTEXT_LENGTH, 512),  # TTM max context is 512
+        prediction_length=ttm_pred_len,
     )
     model = model.to(device).eval()
+    ttm_ctx_len = model.config.context_length
 
-    # TTM-R2 requires freq_token — use 0 for hourly
     predictions = []
     batch_size = 64
     for i in range(0, len(contexts), batch_size):
-        batch = np.array(contexts[i : i + batch_size], dtype=np.float32)
-        # TTM expects (batch, context_length, channels)
-        past_values = torch.tensor(batch).unsqueeze(-1).to(device)
-        freq_token = torch.zeros(len(batch), dtype=torch.long, device=device)
+        batch_contexts = contexts[i : i + batch_size]
 
-        with torch.no_grad():
-            try:
-                output = model(past_values=past_values, freq_token=freq_token)
-            except TypeError:
-                # Fallback: try without freq_token
-                output = model(past_values=past_values)
+        if pred_len <= ttm_pred_len:
+            # Single-step prediction
+            batch = np.array([ctx[-ttm_ctx_len:] for ctx in batch_contexts], dtype=np.float32)
+            past_values = torch.tensor(batch).unsqueeze(-1).to(device)
+            freq_token = torch.zeros(len(batch), dtype=torch.long, device=device)
 
-            if hasattr(output, 'prediction_outputs'):
-                pred = output.prediction_outputs.squeeze(-1).cpu().numpy()
-            elif hasattr(output, 'logits'):
-                pred = output.logits.squeeze(-1).cpu().numpy()
-            else:
-                pred = output[0].squeeze(-1).cpu().numpy() if isinstance(output, tuple) else output.squeeze(-1).cpu().numpy()
+            with torch.no_grad():
+                try:
+                    output = model(past_values=past_values, freq_token=freq_token)
+                except TypeError:
+                    output = model(past_values=past_values)
 
-        predictions.append(pred[:, :pred_len])
+                if hasattr(output, 'prediction_outputs'):
+                    pred = output.prediction_outputs.squeeze(-1).cpu().numpy()
+                else:
+                    pred = output[0].squeeze(-1).cpu().numpy() if isinstance(output, tuple) else output.squeeze(-1).cpu().numpy()
+
+            predictions.append(pred[:, :pred_len])
+        else:
+            # Rolling prediction for longer horizons
+            batch_preds = []
+            for ctx in batch_contexts:
+                rolling_ctx = list(ctx[-ttm_ctx_len:])
+                full_pred = []
+                remaining = pred_len
+                while remaining > 0:
+                    inp = np.array([rolling_ctx[-ttm_ctx_len:]], dtype=np.float32)
+                    past_values = torch.tensor(inp).unsqueeze(-1).to(device)
+                    freq_token = torch.zeros(1, dtype=torch.long, device=device)
+                    with torch.no_grad():
+                        try:
+                            output = model(past_values=past_values, freq_token=freq_token)
+                        except TypeError:
+                            output = model(past_values=past_values)
+                        if hasattr(output, 'prediction_outputs'):
+                            step_pred = output.prediction_outputs.squeeze().cpu().numpy()
+                        else:
+                            step_pred = output[0].squeeze().cpu().numpy() if isinstance(output, tuple) else output.squeeze().cpu().numpy()
+                    take = min(len(step_pred), remaining)
+                    full_pred.extend(step_pred[:take])
+                    rolling_ctx.extend(step_pred[:take])
+                    remaining -= take
+                batch_preds.append(full_pred[:pred_len])
+            predictions.append(np.array(batch_preds))
 
     del model
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
