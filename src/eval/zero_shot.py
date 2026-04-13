@@ -34,13 +34,17 @@ def evaluate_chronos2(model_id, contexts, pred_len):
     device = get_device()
     pipeline = Chronos2Pipeline.from_pretrained(model_id, device_map=device)
 
-    # Build a DataFrame for Chronos-2 API
     all_preds = []
     batch_size = 32
     for i in range(0, len(contexts), batch_size):
         batch = [torch.tensor(ctx, dtype=torch.float32) for ctx in contexts[i : i + batch_size]]
-        forecast = pipeline.predict(batch, prediction_length=pred_len, num_samples=20)
-        pred_median = forecast.median(dim=1).values.numpy()
+        # Chronos-2 predict() does not accept num_samples
+        forecast = pipeline.predict(batch, prediction_length=pred_len)
+        # Handle both quantile and sample outputs
+        if hasattr(forecast, 'median'):
+            pred_median = forecast.median(dim=1).values.numpy()
+        else:
+            pred_median = forecast.numpy() if hasattr(forecast, 'numpy') else np.array(forecast)
         all_preds.append(pred_median)
 
     del pipeline
@@ -78,24 +82,23 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     """Run TimesFM 2.5 zero-shot inference."""
     import timesfm
 
-    tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(model_id)
-    tfm.compile(timesfm.ForecastConfig(
-        max_context=CONTEXT_LENGTH,
-        max_horizon=pred_len,
-        normalize_inputs=True,
-        use_continuous_quantile_head=True,
-        force_flip_invariance=True,
-        infer_is_positive=True,
-        fix_quantile_crossing=True,
-    ))
-
-    context_array = np.array(contexts)
-    point_forecasts, _ = tfm.forecast(
-        horizon=pred_len,
-        inputs=[ctx for ctx in context_array],
+    # Use the native timesfm API (not from_pretrained which has proxy issues)
+    tfm = timesfm.TimesFm(
+        hparams=timesfm.TimesFmHparams(
+            backend="gpu" if torch.cuda.is_available() else "cpu",
+            per_core_batch_size=32,
+            horizon_len=pred_len,
+        ),
+        checkpoint=timesfm.TimesFmCheckpoint(
+            huggingface_repo_id=model_id,
+        ),
     )
 
-    predictions = np.array(point_forecasts)[:, :pred_len]
+    context_array = np.array(contexts)
+    frequency_input = [0] * len(contexts)  # 0 = hourly
+    point_forecasts, _ = tfm.forecast(context_array, freq=frequency_input)
+
+    predictions = point_forecasts[:, :pred_len]
 
     del tfm
     torch.cuda.empty_cache() if torch.cuda.is_available() else None
@@ -128,7 +131,16 @@ def evaluate_moirai2(model_id, contexts, pred_len):
 
     predictions = []
     for forecast in predictor.predict(dataset):
-        pred = np.median(forecast.samples, axis=0)
+        # Moirai 2.0 returns QuantileForecast (no .samples), use .quantile() or ._forecast_array
+        if hasattr(forecast, 'samples'):
+            pred = np.median(forecast.samples, axis=0)
+        elif hasattr(forecast, '_forecast_array'):
+            # QuantileForecast: median is the middle quantile
+            pred = np.median(forecast._forecast_array, axis=0)
+        elif hasattr(forecast, 'quantile'):
+            pred = forecast.quantile(0.5)
+        else:
+            pred = forecast.mean
         predictions.append(pred[:pred_len])
 
     del module, predictor
@@ -141,32 +153,38 @@ def evaluate_moirai2(model_id, contexts, pred_len):
 def evaluate_ttm(model_id, contexts, pred_len):
     """Run TTM-R2 zero-shot inference."""
     from tsfm_public.toolkit.get_model import get_model
-    from transformers import Trainer, TrainingArguments
-    import tempfile
 
+    device = get_device()
     model = get_model(
         model_id,
         context_length=CONTEXT_LENGTH,
         prediction_length=pred_len,
     )
-    model.eval()
+    model = model.to(device).eval()
 
-    device = get_device()
-    model = model.to(device)
-
+    # TTM-R2 requires freq_token — use 0 for hourly
     predictions = []
     batch_size = 64
     for i in range(0, len(contexts), batch_size):
         batch = np.array(contexts[i : i + batch_size], dtype=np.float32)
         # TTM expects (batch, context_length, channels)
-        batch_tensor = torch.tensor(batch).unsqueeze(-1).to(device)
+        past_values = torch.tensor(batch).unsqueeze(-1).to(device)
+        freq_token = torch.zeros(len(batch), dtype=torch.long, device=device)
+
         with torch.no_grad():
-            output = model(batch_tensor)
-            # Output shape: (batch, pred_len, channels)
+            try:
+                output = model(past_values=past_values, freq_token=freq_token)
+            except TypeError:
+                # Fallback: try without freq_token
+                output = model(past_values=past_values)
+
             if hasattr(output, 'prediction_outputs'):
                 pred = output.prediction_outputs.squeeze(-1).cpu().numpy()
+            elif hasattr(output, 'logits'):
+                pred = output.logits.squeeze(-1).cpu().numpy()
             else:
-                pred = output.squeeze(-1).cpu().numpy()
+                pred = output[0].squeeze(-1).cpu().numpy() if isinstance(output, tuple) else output.squeeze(-1).cpu().numpy()
+
         predictions.append(pred[:, :pred_len])
 
     del model
