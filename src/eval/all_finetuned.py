@@ -25,9 +25,22 @@ RESULTS_DIR = TABLES_DIR
 
 
 # ── Model evaluators ────────────────────────────────────────────────────────
+# Reuse the fixed evaluators from zero_shot.py (single source of truth)
+
+from eval.zero_shot import (
+    evaluate_chronos, evaluate_chronos2, evaluate_timesfm,
+    evaluate_moirai2, evaluate_ttm,
+)
+
+
+def _wrap_as_pair(eval_fn, model_path, contexts, pred_len):
+    """Wrap zero_shot evaluator (returns preds) to return (preds, None) pair."""
+    preds = eval_fn(str(model_path), contexts, pred_len)
+    return preds, None
+
 
 def eval_chronos(model_path, contexts, pred_len):
-    """Chronos inference returning (medians, samples)."""
+    """Chronos v1 inference returning (medians, samples)."""
     from chronos import ChronosPipeline
     from utils.logger import get_device
 
@@ -54,119 +67,17 @@ def eval_chronos(model_path, contexts, pred_len):
     return medians, samples
 
 
-def eval_chronos2(model_path, contexts, pred_len):
-    """Chronos-2 inference returning (medians, samples)."""
-    from chronos import Chronos2Pipeline
-    from utils.logger import get_device
+def eval_chronos2_pair(model_path, contexts, pred_len):
+    return _wrap_as_pair(evaluate_chronos2, model_path, contexts, pred_len)
 
-    device = get_device()
-    pipeline = Chronos2Pipeline.from_pretrained(str(model_path), device_map=device)
+def eval_timesfm_pair(model_path, contexts, pred_len):
+    return _wrap_as_pair(evaluate_timesfm, model_path, contexts, pred_len)
 
-    all_medians, all_samples = [], []
-    for i in range(0, len(contexts), 32):
-        batch = [torch.tensor(ctx, dtype=torch.float32) for ctx in contexts[i:i+32]]
-        forecast = pipeline.predict(batch, prediction_length=pred_len, num_samples=20)
-        samples_np = forecast.numpy()
-        all_medians.append(np.median(samples_np, axis=1))
-        all_samples.append(samples_np)
+def eval_moirai2_pair(model_path, contexts, pred_len):
+    return _wrap_as_pair(evaluate_moirai2, model_path, contexts, pred_len)
 
-    del pipeline
-    torch.cuda.empty_cache() if torch.cuda.is_available() else None
-    medians = np.clip(np.concatenate(all_medians), 0, None)
-    samples = np.clip(np.concatenate(all_samples), 0, None)
-    return medians, samples
-
-
-def eval_timesfm(model_path, contexts, pred_len):
-    """TimesFM 2.5 inference."""
-    import timesfm
-
-    tfm = timesfm.TimesFM_2p5_200M_torch.from_pretrained(str(model_path))
-    tfm.compile(timesfm.ForecastConfig(
-        max_context=CONTEXT_LENGTH,
-        max_horizon=pred_len,
-        normalize_inputs=True,
-        use_continuous_quantile_head=True,
-        force_flip_invariance=True,
-        infer_is_positive=True,
-        fix_quantile_crossing=True,
-    ))
-
-    context_array = np.array(contexts)
-    point_forecasts, _ = tfm.forecast(
-        horizon=pred_len,
-        inputs=[ctx for ctx in context_array],
-    )
-    predictions = np.clip(np.array(point_forecasts)[:, :pred_len], 0, None)
-    del tfm
-    return predictions, None
-
-
-def eval_moirai2(model_path, contexts, pred_len):
-    """Moirai 2.0 inference."""
-    from uni2ts.model.moirai2 import Moirai2Forecast, Moirai2Module
-    from gluonts.dataset.common import ListDataset
-
-    module = Moirai2Module.from_pretrained(str(model_path))
-    forecast_module = Moirai2Forecast(
-        module=module,
-        prediction_length=pred_len,
-        context_length=CONTEXT_LENGTH,
-        target_dim=1,
-        feat_dynamic_real_dim=0,
-        past_feat_dynamic_real_dim=0,
-    )
-    predictor = forecast_module.create_predictor(batch_size=32)
-
-    dataset = ListDataset(
-        [{"start": pd.Timestamp("2025-01-01"), "target": ctx} for ctx in contexts],
-        freq="h",
-    )
-
-    all_medians, all_samples = [], []
-    for forecast in predictor.predict(dataset):
-        s = forecast.samples[:, :pred_len]
-        all_samples.append(s)
-        all_medians.append(np.median(s, axis=0))
-
-    del module, predictor
-    medians = np.clip(np.array(all_medians), 0, None)
-    samples = np.clip(np.array(all_samples), 0, None)
-    return medians, samples
-
-
-def eval_ttm(model_path, contexts, pred_len):
-    """TTM-R2 inference."""
-    from tsfm_public.toolkit.get_model import get_model
-    from utils.logger import get_device
-
-    device = get_device()
-
-    # Check for fine-tuned model
-    ft_path = MODELS_DIR / "ft-ttm-r2" / f"ttm_{pred_len}h"
-    if isinstance(model_path, Path) or (ft_path.exists() and "FT" in str(model_path)):
-        model = get_model(str(ft_path), context_length=CONTEXT_LENGTH, prediction_length=pred_len)
-    else:
-        model = get_model(str(model_path), context_length=CONTEXT_LENGTH, prediction_length=pred_len)
-
-    model = model.to(device).eval()
-
-    predictions = []
-    for i in range(0, len(contexts), 64):
-        batch = np.array(contexts[i:i+64], dtype=np.float32)
-        batch_tensor = torch.tensor(batch).unsqueeze(-1).to(device)
-        with torch.no_grad():
-            output = model(batch_tensor)
-            if hasattr(output, 'prediction_outputs'):
-                pred = output.prediction_outputs.squeeze(-1).cpu().numpy()
-            else:
-                pred = output.squeeze(-1).cpu().numpy()
-        predictions.append(pred[:, :pred_len])
-
-    del model
-    torch.cuda.empty_cache() if torch.cuda.is_available() else None
-    preds = np.clip(np.concatenate(predictions), 0, None)
-    return preds, None
+def eval_ttm_pair(model_path, contexts, pred_len):
+    return _wrap_as_pair(evaluate_ttm, model_path, contexts, pred_len)
 
 
 def eval_baseline_preds(pred_len, model_name):
@@ -258,13 +169,13 @@ def main():
                 elif family == "chronos":
                     preds, samples = eval_chronos(model_path, contexts, pred_len)
                 elif family == "chronos2":
-                    preds, samples = eval_chronos2(model_path, contexts, pred_len)
+                    preds, samples = eval_chronos2_pair(model_path, contexts, pred_len)
                 elif family == "timesfm":
-                    preds, samples = eval_timesfm(model_path, contexts, pred_len)
+                    preds, samples = eval_timesfm_pair(model_path, contexts, pred_len)
                 elif family == "moirai2":
-                    preds, samples = eval_moirai2(model_path, contexts, pred_len)
+                    preds, samples = eval_moirai2_pair(model_path, contexts, pred_len)
                 elif family == "ttm":
-                    preds, samples = eval_ttm(model_path, contexts, pred_len)
+                    preds, samples = eval_ttm_pair(model_path, contexts, pred_len)
                 else:
                     continue
             except Exception as e:
