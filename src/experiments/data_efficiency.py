@@ -5,118 +5,155 @@ Fine-tunes Chronos with increasing amounts of training data:
 Evaluates each on the same test set to show the learning curve.
 """
 
-import json
-import subprocess
 import sys
 import numpy as np
 import pandas as pd
 import torch
 from pathlib import Path
+from torch.utils.data import Dataset
 from chronos import ChronosPipeline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.logger import create_log, log_step, log_metrics, save_log, save_summary
+from utils.seed import set_seed
+from utils.logger import create_log, log_step, log_metrics, save_log, save_summary, get_device
 from utils.eval_utils import load_windows, get_season, compute_metrics
 from config import PROCESSED_DIR, MODELS_DIR, TABLES_DIR, PREDICTION_LENGTHS
 
+set_seed()
+
 RESULTS_DIR = TABLES_DIR
 BASE_MODEL = "amazon/chronos-t5-small"
-
-# Training data subsets (months from start of 2020)
 DATA_SUBSETS = [3, 6, 12, 24, 48]
 
 
-def create_subset_data(n_months):
-    """Create a training data file using only the first n_months of data."""
-    train_df = pd.read_csv(PROCESSED_DIR / "train.csv", index_col="timestamp", parse_dates=True)
+class ChronosSubsetDataset(Dataset):
+    """Dataset for Chronos fine-tuning from a data subset."""
 
-    # Subset to first n_months
+    def __init__(self, series_list, tokenizer, context_length, prediction_length, stride=24):
+        self.samples = []
+        for series in series_list:
+            arr = np.array(series, dtype=np.float32)
+            total_len = context_length + prediction_length
+            if len(arr) >= total_len:
+                for start in range(0, len(arr) - total_len + 1, stride):
+                    self.samples.append(arr[start : start + total_len])
+        self.tokenizer = tokenizer
+        self.context_length = context_length
+        self.prediction_length = prediction_length
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        window = self.samples[idx]
+        context = torch.tensor(window[: self.context_length], dtype=torch.float32)
+        target = torch.tensor(
+            window[self.context_length : self.context_length + self.prediction_length],
+            dtype=torch.float32,
+        )
+        input_ids, attention_mask, tokenizer_state = (
+            self.tokenizer.context_input_transform(context.unsqueeze(0))
+        )
+        labels, _ = self.tokenizer.label_input_transform(
+            target.unsqueeze(0), tokenizer_state
+        )
+        return {
+            "input_ids": input_ids.squeeze(0),
+            "attention_mask": attention_mask.squeeze(0),
+            "labels": labels.squeeze(0),
+        }
+
+
+def build_subset_series(n_months):
+    """Build training series from first n_months of data."""
+    train_df = pd.read_csv(PROCESSED_DIR / "train.csv", index_col="timestamp", parse_dates=True)
     start = train_df.index.min()
     end = start + pd.DateOffset(months=n_months)
     subset = train_df.loc[:end]
 
-    # Create series (monthly chunks)
     series_list = []
     for year in subset.index.year.unique():
-        for month in subset.index.month.unique():
+        for month in range(1, 13):
             mask = (subset.index.year == year) & (subset.index.month == month)
             monthly = subset.loc[mask, "ALLSKY_SFC_SW_DWN"].dropna().values
             if len(monthly) > 48:
                 series_list.append(monthly.tolist())
 
-    # Save as JSON lines
-    data_dir = PROCESSED_DIR / "chronos_finetune"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    jsonl_path = data_dir / f"train_{n_months}m.json"
-    with open(jsonl_path, "w") as f:
-        for i, series in enumerate(series_list):
-            record = {"start": "2020-01-01 00:00:00", "target": series, "item_id": str(i)}
-            f.write(json.dumps(record) + "\n")
-
     print(f"  {n_months} months: {len(series_list)} series, {sum(len(s) for s in series_list)} total hours")
-    return jsonl_path
+    return series_list
 
 
-def finetune_subset(n_months, data_path):
-    """Fine-tune Chronos on a data subset."""
+def finetune_subset(n_months, series_list):
+    """Fine-tune Chronos on a data subset using HuggingFace Trainer."""
+    from transformers import Trainer, TrainingArguments
+
     output_path = MODELS_DIR / f"chronos-t5-small-{n_months}m"
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Scale steps with data size
     max_steps = min(500 + n_months * 30, 2000)
 
-    cmd = [
-        sys.executable, "-m", "chronos.scripts.training",
-        "--training_data_paths", str(data_path),
-        "--probability", "1.0",
-        "--context_length", "168",
-        "--prediction_length", "72",
-        "--min_past", "168",
-        "--max_steps", str(max_steps),
-        "--save_steps", str(max_steps),  # only save final
-        "--log_steps", "100",
-        "--per_device_train_batch_size", "32",
-        "--learning_rate", "1e-4",
-        "--optim", "adamw_torch",
-        "--shuffle_buffer_length", "5000",
-        "--model_id", BASE_MODEL,
-        "--model_type", "seq2seq",
-        "--output_dir", str(output_path),
-        "--tf32", "false",
-        "--torch_compile", "false",
-        "--tokenizer_class", "MeanScaleUniformBins",
-        "--n_tokens", "4096",
-        "--lr_scheduler_type", "linear",
-        "--warmup_ratio", "0.1",
-    ]
+    pipeline = ChronosPipeline.from_pretrained(
+        BASE_MODEL, device_map="cpu", dtype=torch.float32,
+    )
+    model = pipeline.model.model
+    tokenizer = pipeline.tokenizer
+    ctx_len = pipeline.model.config.context_length
+    pred_len = pipeline.model.config.prediction_length
 
-    print(f"  Fine-tuning with {n_months} months ({max_steps} steps)...")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    dataset = ChronosSubsetDataset(series_list, tokenizer, ctx_len, pred_len, stride=24)
+    print(f"  Fine-tuning with {n_months} months ({max_steps} steps, {len(dataset)} samples)...")
 
-    if result.returncode != 0:
-        print(f"  WARNING: Fine-tuning failed for {n_months}m: {result.stderr[:200]}")
+    if len(dataset) == 0:
+        print(f"  WARNING: No training samples for {n_months}m")
         return None
 
+    training_args = TrainingArguments(
+        output_dir=str(output_path),
+        max_steps=max_steps,
+        per_device_train_batch_size=16,
+        learning_rate=1e-4,
+        lr_scheduler_type="linear",
+        warmup_ratio=0.1,
+        weight_decay=0.01,
+        optim="adamw_torch",
+        logging_steps=100,
+        save_steps=max_steps,
+        save_total_limit=1,
+        fp16=torch.cuda.is_available(),
+        dataloader_num_workers=0,
+        remove_unused_columns=False,
+        report_to="none",
+    )
+
+    trainer = Trainer(model=model, args=training_args, train_dataset=dataset)
+    trainer.train()
+
+    trainer.save_model(str(output_path))
+    model.config.save_pretrained(str(output_path))
+    print(f"  Model saved to {output_path}")
+
+    del pipeline, trainer
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
     return output_path
 
 
 def evaluate_model(model_path, contexts, pred_len):
-    """Run inference."""
-    from utils.logger import get_device
+    """Run Chronos inference."""
     device = get_device()
     pipeline = ChronosPipeline.from_pretrained(
         str(model_path), device_map=device, dtype=torch.float32,
     )
 
     predictions = []
-    batch_size = 32
-    for i in range(0, len(contexts), batch_size):
-        batch = [torch.tensor(ctx, dtype=torch.float32) for ctx in contexts[i : i + batch_size]]
+    for i in range(0, len(contexts), 32):
+        batch = [torch.tensor(ctx, dtype=torch.float32) for ctx in contexts[i : i + 32]]
         forecast = pipeline.predict(batch, prediction_length=pred_len, num_samples=20)
         pred_median = forecast.median(dim=1).values.numpy()
         predictions.append(pred_median)
 
-    predictions = np.concatenate(predictions, axis=0)
-    return np.clip(predictions, 0, None)
+    del pipeline
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+    return np.clip(np.concatenate(predictions, axis=0), 0, None)
 
 
 def main():
@@ -129,11 +166,11 @@ def main():
     })
     all_results = []
 
-    # Prepare all data subsets
+    # Build all data subsets
     print("Preparing data subsets...")
-    data_paths = {}
+    subset_series = {}
     for n_months in DATA_SUBSETS:
-        data_paths[n_months] = create_subset_data(n_months)
+        subset_series[n_months] = build_subset_series(n_months)
 
     # Fine-tune and evaluate each subset
     for n_months in DATA_SUBSETS:
@@ -142,7 +179,7 @@ def main():
         print(f"{'=' * 40}")
 
         log_step(log, f"finetune_{n_months}m")
-        model_path = finetune_subset(n_months, data_paths[n_months])
+        model_path = finetune_subset(n_months, subset_series[n_months])
         if model_path is None:
             continue
 
