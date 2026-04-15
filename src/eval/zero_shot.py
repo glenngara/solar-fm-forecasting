@@ -125,15 +125,22 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     elif device == "cuda" and hasattr(tfm, 'model'):
         tfm.model = tfm.model.to("cuda")
 
-    # Build config with only supported params
+    # Build config with supported params — enable normalization and positivity
     fc_kwargs = {}
     if 'max_context' in fc_params:
         fc_kwargs['max_context'] = CONTEXT_LENGTH
     if 'max_horizon' in fc_params:
         fc_kwargs['max_horizon'] = pred_len
+    if 'normalize_inputs' in fc_params:
+        fc_kwargs['normalize_inputs'] = True
+    if 'infer_is_positive' in fc_params:
+        fc_kwargs['infer_is_positive'] = True
+    if 'per_core_batch_size' in fc_params:
+        fc_kwargs['per_core_batch_size'] = 32
     tfm.compile(timesfm.ForecastConfig(**fc_kwargs))
 
     context_array = np.array(contexts)
+
     # Try different forecast APIs
     try:
         point_forecasts, _ = tfm.forecast(
@@ -141,8 +148,16 @@ def evaluate_timesfm(model_id, contexts, pred_len):
             horizon=pred_len,
         )
     except TypeError:
-        frequency_input = [0] * len(contexts)
-        point_forecasts, _ = tfm.forecast(context_array, freq=frequency_input)
+        try:
+            frequency_input = [0] * len(contexts)  # 0 = hourly
+            point_forecasts, _ = tfm.forecast(context_array, freq=frequency_input)
+        except TypeError:
+            point_forecasts, _ = tfm.forecast(context_array)
+
+    # Debug: print sample predictions to check scaling
+    preds = np.array(point_forecasts)[:, :pred_len]
+    print(f"  TimesFM predictions — min: {preds.min():.1f}, max: {preds.max():.1f}, mean: {preds.mean():.1f}")
+    print(f"  Context input — min: {context_array.min():.1f}, max: {context_array.max():.1f}, mean: {context_array.mean():.1f}")
 
     predictions = np.array(point_forecasts)[:, :pred_len]
 
