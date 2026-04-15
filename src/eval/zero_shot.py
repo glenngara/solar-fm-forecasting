@@ -118,6 +118,13 @@ def evaluate_timesfm(model_id, contexts, pred_len):
     fc_params = list(inspect.signature(timesfm.ForecastConfig.__init__).parameters.keys())
     print(f"  ForecastConfig params: {fc_params}")
 
+    # Move model to GPU if available
+    device = get_device()
+    if device == "cuda" and hasattr(tfm, 'to'):
+        tfm = tfm.to("cuda")
+    elif device == "cuda" and hasattr(tfm, 'model'):
+        tfm.model = tfm.model.to("cuda")
+
     # Build config with only supported params
     fc_kwargs = {}
     if 'max_context' in fc_params:
