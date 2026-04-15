@@ -56,16 +56,25 @@ def finetune():
     print(f"Output: {output_path}")
 
     class SolarDataset(Dataset):
-        def __init__(self, contexts, targets, ctx_len):
+        def __init__(self, contexts, targets, ctx_len, model_pred_len):
             # Pad contexts to ctx_len if shorter
-            padded = []
+            padded_ctx = []
             for ctx in contexts:
                 if len(ctx) >= ctx_len:
-                    padded.append(ctx[-ctx_len:])
+                    padded_ctx.append(ctx[-ctx_len:])
                 else:
-                    padded.append(np.pad(ctx, (ctx_len - len(ctx), 0), mode='constant'))
-            self.contexts = torch.tensor(np.array(padded, dtype=np.float32)).unsqueeze(-1)
-            self.targets = torch.tensor(np.array(targets, dtype=np.float32)).unsqueeze(-1)
+                    padded_ctx.append(np.pad(ctx, (ctx_len - len(ctx), 0), mode='constant'))
+
+            # Pad targets to model_pred_len if shorter (TTM may expect e.g. 48 not 24)
+            padded_tgt = []
+            for tgt in targets:
+                if len(tgt) >= model_pred_len:
+                    padded_tgt.append(tgt[:model_pred_len])
+                else:
+                    padded_tgt.append(np.pad(tgt, (0, model_pred_len - len(tgt)), mode='constant'))
+
+            self.contexts = torch.tensor(np.array(padded_ctx, dtype=np.float32)).unsqueeze(-1)
+            self.targets = torch.tensor(np.array(padded_tgt, dtype=np.float32)).unsqueeze(-1)
 
         def __len__(self):
             return len(self.contexts)
@@ -91,11 +100,13 @@ def finetune():
             prediction_length=pred_len,
         )
         ttm_ctx_len = model.config.context_length
+        ttm_pred_len = model.config.prediction_length
+        print(f"  TTM config: context={ttm_ctx_len}, prediction={ttm_pred_len}")
 
-        # Split 90/10 for train/val, pad to model's context length
+        # Split 90/10 for train/val, pad to model's context and prediction lengths
         n_val = max(1, len(contexts) // 10)
-        train_ds = SolarDataset(contexts[:-n_val], targets[:-n_val], ttm_ctx_len)
-        val_ds = SolarDataset(contexts[-n_val:], targets[-n_val:], ttm_ctx_len)
+        train_ds = SolarDataset(contexts[:-n_val], targets[:-n_val], ttm_ctx_len, ttm_pred_len)
+        val_ds = SolarDataset(contexts[-n_val:], targets[-n_val:], ttm_ctx_len, ttm_pred_len)
 
         training_args = TrainingArguments(
             output_dir=str(output_path / f"{pred_len}h"),
