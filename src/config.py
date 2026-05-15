@@ -26,13 +26,23 @@ CONTEXT_LENGTH = 168  # 7 days of hourly data
 SEED = 42
 
 # ── Foundation Models (Zero-Shot Evaluation) ─────────────────────────────────
+# Foundation-model families reproduced by the paper. Iterating over this
+# list reproduces every zero-shot result reported in the manuscript.
 FM_REGISTRY = [
     # (display_name, model_family, huggingface_id)
     ("Chronos-2", "chronos2", "amazon/chronos-2"),
     ("Chronos-T5-Small", "chronos", "amazon/chronos-t5-small"),
     ("Chronos-T5-Base", "chronos", "amazon/chronos-t5-base"),
-    ("TimesFM-2.5", "timesfm", "google/timesfm-2.5-200m-pytorch"),
     ("Moirai-2.0-Small", "moirai2", "Salesforce/moirai-2.0-R-small"),
+]
+
+# Foundation models considered during preliminary integration but
+# excluded from the paper's reported results. Their evaluator code
+# remains in src/eval/zero_shot.py for future-work exploration; they
+# are intentionally not in FM_REGISTRY so `make all` reproduces only
+# what the paper claims.
+FM_REGISTRY_EXCLUDED = [
+    ("TimesFM-2.5", "timesfm", "google/timesfm-2.5-200m-pytorch"),
     ("TTM-R2", "ttm", "ibm-granite/granite-timeseries-ttm-r2"),
 ]
 
