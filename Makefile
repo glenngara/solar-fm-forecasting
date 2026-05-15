@@ -3,11 +3,14 @@ SRC = src
 
 .PHONY: all setup data prepare eda zero-shot baselines finetune-chronos finetune-ttm finetune-all eval-finetuned eval-all eval-ablation data-efficiency sensitivity figures clean
 
-# Run the entire pipeline
-all: data prepare eda zero-shot baselines finetune-all eval-all eval-ablation data-efficiency sensitivity figures
-	@echo "\n=== Pipeline complete ==="
-	@echo "Results in: results/tables/ and results/figures/"
-	@echo "Logs in: results/logs/"
+# Reproduce every table and figure in the paper end-to-end.
+# Foundation models reproduced: Chronos-2, Chronos-T5-Small/Base, Moirai-2.0-Small.
+# TimesFM-2.5 and TTM-R2 are excluded from the paper and from this target.
+all: data prepare eda zero-shot baselines finetune-chronos eval-finetuned eval-all eval-ablation data-efficiency sensitivity figures
+	@echo "\n=== Paper reproduction complete ==="
+	@echo "Tables  -> results/tables/"
+	@echo "Figures -> results/figures/"
+	@echo "Logs    -> results/logs/"
 
 # Setup Python environment
 setup:

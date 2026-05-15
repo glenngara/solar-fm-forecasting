@@ -29,10 +29,20 @@ manuscripts/
 .idea/
 *.swp
 *.swo
+*.code-workspace
 .DS_Store
 
 # Jupyter
 .ipynb_checkpoints/
+
+# LaTeX build artefacts (stray, e.g. when pdflatex is run from repo root)
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+texput.log
 
 # OS
 Thumbs.db

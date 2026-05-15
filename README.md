@@ -1,10 +1,17 @@
-# Evaluating Time Series Foundation Models for Tropical Solar Irradiance Forecasting
+# Are Pre-trained Time-Series Foundation Models Ready for Tropical Solar Forecasting?
 
-A case study on Laguna de Bay, Philippines — targeting PREE 2026 (IEEE Xplore).
+Reproducibility companion for the paper:
+**"Are Pre-trained Time-Series Foundation Models Ready for Tropical Solar Forecasting? A Case Study on Laguna de Bay, Philippines"** — submitted to IEEE PREE 2026.
 
-## Research Question
+> Gara, G. C., Gara, G. P. P., and Cascaro, R. J., *"Are Pre-trained Time-Series Foundation Models Ready for Tropical Solar Forecasting? A Case Study on Laguna de Bay, Philippines,"* in **Proc. 4th Int. Conf. on Power and Renewable Energy Engineering (PREE)**, 2026.
 
-Can pre-trained time series foundation models (Chronos-2, TimesFM 2.5, Moirai 2.0, TTM-R2) accurately forecast solar irradiance in tropical monsoon climates? Does fine-tuning on local data improve performance, especially during the wet season?
+This repository contains **only** the code, data manifests, and configuration needed to reproduce every table and figure in the paper. It is intentionally scoped to that purpose; it is not a general-purpose time-series-forecasting toolkit.
+
+## Research question (as evaluated in the paper)
+
+Do pre-trained time-series foundation models — **Chronos-2**, **Chronos-T5-Small**, **Chronos-T5-Base**, and **Moirai-2.0-Small** — match or outperform tuned classical baselines (Persistence, XGBoost, LSTM) for short-horizon (24 h) and medium-range (72 h) solar irradiance forecasting at a tropical-monsoon site? Does in-domain fine-tuning of Chronos-T5 close any residual gap?
+
+> **Scope note.** TimesFM-2.5 and TTM-R2 were initially included but excluded from the paper for methodological reasons (unresolved input-scaling and API-versioning issues that produced predictions inconsistent with their reported benchmarks). Their evaluator code remains in `src/eval/zero_shot.py` for completeness but is **not** invoked by the reproducibility pipeline.
 
 ## Reproducibility
 
@@ -22,7 +29,7 @@ All output directories (`data/`, `results/`, `models/`) are auto-created by the 
 ### Step 1: Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/solar-fm-forecasting.git
+git clone https://github.com/glenngara/solar-fm-forecasting.git
 cd solar-fm-forecasting
 ```
 
@@ -125,10 +132,10 @@ make all       # Re-run entire pipeline
 | 1 | `make data` | `data/download_nasa_power.py` | Download NASA POWER data (2020-2025) |
 | 2 | `make prepare` | `data/prepare_data.py` | Train/val/test splits + forecast windows |
 | 3 | `make eda` | `figures/eda.py` | Exploratory data analysis figures |
-| 4 | `make zero-shot` | `eval/zero_shot.py` | Zero-shot FM evaluation (6 models) |
-| 5 | `make baselines` | `eval/baselines.py` | Traditional baselines (XGBoost, LSTM) |
-| 6 | `make finetune-chronos` | `finetune/chronos_ft.py` | Fine-tune Chronos Small + Base |
-| 7 | `make finetune-ttm` | `finetune/ttm_ft.py` | Fine-tune TTM-R2 |
+| 4 | `make zero-shot` | `eval/zero_shot.py` | Zero-shot FM evaluation (4 models reported in the paper: Chronos-2, Chronos-T5-Small/Base, Moirai-2.0-Small) |
+| 5 | `make baselines` | `eval/baselines.py` | Classical baselines (Persistence, XGBoost, LSTM) |
+| 6 | `make finetune-chronos` | `finetune/chronos_ft.py` | Fine-tune Chronos-T5-Small + Chronos-T5-Base |
+| 7 | `make finetune-ttm` | `finetune/ttm_ft.py` | (Excluded from paper; retained for future work) |
 | 8 | `make eval-finetuned` | `eval/finetuned.py` | Fine-tuned Chronos vs zero-shot |
 | 9 | `make eval-all` | `eval/all_finetuned.py` | Full comparison + CRPS + DM tests |
 | 10 | `make eval-ablation` | `eval/ablation.py` | Ablation: training steps vs performance |
@@ -169,16 +176,20 @@ Data is downloaded automatically by the pipeline via `make data`. No manual down
 
 ## Models
 
-**Foundation Models:**
+**Foundation Models reported in the paper:**
 
-| Model | Provider | Params | Architecture | Fine-tuned | Year |
-|-------|----------|--------|-------------|------------|------|
-| Chronos-2 | Amazon | 120M | Encoder-only | No (zero-shot) | 2025 |
-| Chronos-T5 Small | Amazon | ~60M | T5 enc-dec | Yes | 2024 |
-| Chronos-T5 Base | Amazon | ~200M | T5 enc-dec | Yes | 2024 |
-| TimesFM 2.5 | Google | 200M | Patched decoder | No (zero-shot) | 2026 |
-| Moirai 2.0 Small | Salesforce | ~14M | Decoder-only | No (zero-shot) | 2025 |
-| TTM-R2 | IBM | ~1M | MLP-Mixer | Yes | 2025 |
+| Model | Provider | Params | Architecture | Fine-tuned |
+|-------|----------|--------|-------------|------------|
+| Chronos-2 | Amazon | ~120M | Encoder-only | No (zero-shot) |
+| Chronos-T5 Small | Amazon | ~46M | T5 enc-dec | Yes |
+| Chronos-T5 Base | Amazon | ~200M | T5 enc-dec | Yes |
+| Moirai-2.0 Small | Salesforce | ~11M | Decoder-only | No (zero-shot) |
+
+**Excluded from the paper** (kept in code for future work, not reproduced by `make all`):
+| Model | Provider | Reason for exclusion |
+|-------|----------|----------------------|
+| TimesFM 2.5 | Google | Unresolved input-normalisation / API-versioning issues |
+| TTM-R2 | IBM | Missing instance-scaling on raw irradiance; deferred to follow-up work |
 
 **Baselines:**
 
@@ -251,6 +262,25 @@ solar-fm-forecasting/
 
 ## Authors
 
-- Glenn Paul Gara
-- Gretchie Gara
-- Marvin Santillan
+- **Gretchie C. Gara** — National University, Philippines (`gcgara@nu-laguna.edu.ph`)
+- **Glenn Paul P. Gara** — De La Salle University; University of the Immaculate Conception (`glenn_gara@dlsu.edu.ph`, `ggara@uic.edu.ph`)
+- **Marvin C. Santillan** — Pangasinan State University; De La Salle University (`msantillan.lingayen-sl@psu.edu.ph`, `marvin_santillan@dlsu.edu.ph`)
+- **Rhodessa J. Cascaro** — Mapua Malayan Colleges Mindanao (`rjcascaro@mcm.edu.ph`)
+
+## Acknowledgement
+
+The high-performance computing infrastructure used to train, fine-tune, and evaluate all models was provided by **Mapua Malayan Colleges Mindanao**. Meteorological data was sourced from the **NASA POWER** project.
+
+## Citation
+
+```bibtex
+@inproceedings{gara2026solar,
+  author    = {Gara, Gretchie C. and Gara, Glenn Paul P. and Santillan, Marvin C. and Cascaro, Rhodessa J.},
+  title     = {Are Pre-trained Time-Series Foundation Models Ready for
+               Tropical Solar Forecasting? A Case Study on Laguna de Bay,
+               Philippines},
+  booktitle = {Proc. 4th International Conference on Power and Renewable
+               Energy Engineering (PREE)},
+  year      = {2026}
+}
+```
