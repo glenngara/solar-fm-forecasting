@@ -1,9 +1,9 @@
-# Are Time-Series Foundation Models Ready for Tropical Solar Forecasting?
+# Are Pre-trained Time-Series Foundation Models Ready for Tropical Solar Forecasting?
 
 Reproducibility companion for the paper:
-**"Are Time-Series Foundation Models Ready for Tropical Solar Forecasting? A Multi-Horizon Benchmark on Laguna de Bay, Philippines"** — submitted to IEEE PREE 2026.
+**"Are Pre-trained Time-Series Foundation Models Ready for Tropical Solar Forecasting? A Multi-Horizon Benchmark on Laguna de Bay, Philippines"** — submitted to IEEE PREE 2026.
 
-> Gara, G. C., Gara, G. P. P., Santillan, M. C., and Cascaro, R. J., *"Are Time-Series Foundation Models Ready for Tropical Solar Forecasting? A Multi-Horizon Benchmark on Laguna de Bay, Philippines,"* in **Proc. 4th Int. Conf. on Power and Renewable Energy Engineering (PREE)**, 2026.
+> Gara, G. C., Gara, G. P. P., Santillan, M. C., and Cascaro, R. J., *"Are Pre-trained Time-Series Foundation Models Ready for Tropical Solar Forecasting? A Multi-Horizon Benchmark on Laguna de Bay, Philippines,"* in **Proc. 4th Int. Conf. on Power and Renewable Energy Engineering (PREE)**, 2026.
 
 This repository contains **only** the code, data manifests, and configuration needed to reproduce every table and figure in the paper. It is intentionally scoped to that purpose; it is not a general-purpose time-series-forecasting toolkit.
 
@@ -277,9 +277,9 @@ The high-performance computing infrastructure used to train, fine-tune, and eval
 ```bibtex
 @inproceedings{gara2026solar,
   author    = {Gara, Gretchie C. and Gara, Glenn Paul P. and Santillan, Marvin C. and Cascaro, Rhodessa J.},
-  title     = {Are Time-Series Foundation Models Ready for Tropical
-               Solar Forecasting? A Multi-Horizon Benchmark on Laguna
-               de Bay, Philippines},
+  title     = {Are Pre-trained Time-Series Foundation Models Ready for
+               Tropical Solar Forecasting? A Multi-Horizon Benchmark on
+               Laguna de Bay, Philippines},
   booktitle = {Proc. 4th International Conference on Power and Renewable
                Energy Engineering (PREE)},
   year      = {2026}
