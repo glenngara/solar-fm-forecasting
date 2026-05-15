@@ -92,52 +92,57 @@ def fig2_daily_irradiance_heatmap(df):
 
 
 def fig3_wet_vs_dry_timeseries(df):
-    """Mean diurnal curve for the dry vs wet season, with 25-75 percentile
-    bands. Aggregates over all years to remove single-week sampling bias.
-
-    Dry season: December-May. Wet/monsoon: June-November.
+    """Box plot of daily peak irradiance by month, aggregated over the
+    full 6-year dataset. Daily peak is the noon-time maximum and is the
+    operationally relevant quantity for solar generation. Coloring by
+    season (dry: Dec-May, wet/monsoon: Jun-Nov) makes the seasonal
+    cycle and the monsoon-driven variability visible at a glance.
     """
-    s = df["ALLSKY_SFC_SW_DWN"].copy()
-    months = s.index.month
-    hours = s.index.hour
+    import matplotlib.patches as mpatches
 
-    is_dry = months.isin([12, 1, 2, 3, 4, 5])
-    is_wet = months.isin([6, 7, 8, 9, 10, 11])
+    s = df["ALLSKY_SFC_SW_DWN"]
+    daily_peak = s.resample("D").max().dropna()
+    months = daily_peak.index.month
+    data_by_month = [daily_peak[months == m].values for m in range(1, 13)]
 
-    def _per_hour_stats(mask):
-        sub = s[mask]
-        grp = sub.groupby(sub.index.hour)
-        return grp.mean(), grp.quantile(0.25), grp.quantile(0.75)
+    dry_months = {12, 1, 2, 3, 4, 5}
+    colors = ["#FF9800" if m in dry_months else "#2196F3"
+              for m in range(1, 13)]
 
-    dry_mean, dry_lo, dry_hi = _per_hour_stats(is_dry)
-    wet_mean, wet_lo, wet_hi = _per_hour_stats(is_wet)
+    fig, ax = plt.subplots(figsize=(10, 3.2))
+    bp = ax.boxplot(
+        data_by_month,
+        positions=range(1, 13),
+        widths=0.65,
+        patch_artist=True,
+        showfliers=False,
+        medianprops=dict(color="black", linewidth=1.4),
+        whiskerprops=dict(color="gray"),
+        capprops=dict(color="gray"),
+    )
+    for box, c in zip(bp["boxes"], colors):
+        box.set_facecolor(c)
+        box.set_alpha(0.55)
+        box.set_edgecolor(c)
 
-    fig, ax = plt.subplots(figsize=(10, 3))
-
-    h = np.arange(24)
-    ax.plot(h, dry_mean.values, color="#FF9800", linewidth=2.0,
-            label="Dry season (Dec-May)")
-    ax.fill_between(h, dry_lo.values, dry_hi.values,
-                    alpha=0.25, color="#FF9800",
-                    label="Dry interquartile range")
-
-    ax.plot(h, wet_mean.values, color="#2196F3", linewidth=2.0,
-            label="Wet/monsoon season (Jun-Nov)")
-    ax.fill_between(h, wet_lo.values, wet_hi.values,
-                    alpha=0.25, color="#2196F3",
-                    label="Wet interquartile range")
-
-    ax.set_xlabel("Hour of day (local time)")
-    ax.set_ylabel("Solar irradiance (W/m²)")
-    ax.set_xlim(0, 23)
-    ax.set_xticks(range(0, 24, 3))
+    ax.set_xticks(range(1, 13))
+    ax.set_xticklabels(["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Daily peak irradiance (W/m$^2$)")
     ax.set_ylim(0)
-    ax.grid(alpha=0.3)
-    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+    ax.grid(axis="y", alpha=0.3)
+    ax.legend(
+        [mpatches.Patch(color="#FF9800", alpha=0.55),
+         mpatches.Patch(color="#2196F3", alpha=0.55)],
+        ["Dry season (Dec-May)", "Wet/monsoon (Jun-Nov)"],
+        loc="lower center", ncol=2, fontsize=9, framealpha=0.9,
+    )
 
     fig.suptitle(
-        "Mean diurnal solar irradiance at Laguna de Bay (2020-2025)",
-        fontsize=13, y=1.02,
+        "Distribution of daily peak irradiance by month, "
+        "Laguna de Bay (2020-2025)",
+        fontsize=12, y=1.02,
     )
     fig.tight_layout()
     fig.savefig(FIG_DIR / "fig3_wet_vs_dry_timeseries.png",
