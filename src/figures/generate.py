@@ -113,47 +113,69 @@ def fig_zeroshot_vs_finetuned(results):
 
     overall = df[df["season"] == "all"].copy()
 
+    panels = []
     for pred_len in ["24h", "72h"]:
         subset = overall[overall["horizon"] == pred_len]
         if subset.empty:
             continue
-
-        # Group by model family
-        fig, ax = plt.subplots(figsize=(10, 6))
-
         models_zs = subset[subset["model"].str.contains("ZS|zero-shot", regex=True)]
         models_ft = subset[subset["model"].str.contains("FT|fine-tuned", regex=True)]
-
         if models_zs.empty or models_ft.empty:
             continue
+        panels.append((pred_len, models_zs, models_ft))
 
+        # also keep the per-horizon single-panel figure for backward compatibility
+        fig, ax = plt.subplots(figsize=(10, 6))
         x = np.arange(len(models_zs))
         width = 0.35
-
         zs_labels = [m.split("(")[0].strip() for m in models_zs["model"]]
-
-        bars1 = ax.bar(x - width / 2, models_zs["MAE"].values, width,
-                       label="Zero-shot", color="#1f77b4", edgecolor="white")
-        bars2 = ax.bar(x + width / 2, models_ft["MAE"].values, width,
-                       label="Fine-tuned", color="#ff7f0e", edgecolor="white")
-
+        ax.bar(x - width / 2, models_zs["MAE"].values, width,
+               label="Zero-shot", color="#1f77b4", edgecolor="white")
+        ax.bar(x + width / 2, models_ft["MAE"].values, width,
+               label="Fine-tuned", color="#ff7f0e", edgecolor="white")
         ax.set_ylabel("MAE (W/m²)")
-        ax.set_title(f"Zero-Shot vs Fine-Tuned — {pred_len} Horizon")
-        ax.set_xticks(x)
-        ax.set_xticklabels(zs_labels)
-        ax.legend()
-
-        # Add improvement labels
-        for i, (zs_val, ft_val) in enumerate(zip(models_zs["MAE"].values, models_ft["MAE"].values)):
+        ax.set_title(f"Zero-Shot vs Fine-Tuned - {pred_len} Horizon")
+        ax.set_xticks(x); ax.set_xticklabels(zs_labels); ax.legend()
+        for i, (zs_val, ft_val) in enumerate(zip(models_zs["MAE"].values,
+                                                 models_ft["MAE"].values)):
             imp = (1 - ft_val / zs_val) * 100
             color = "green" if imp > 0 else "red"
             ax.text(i, max(zs_val, ft_val) + 0.5, f"{imp:+.1f}%",
                     ha="center", fontsize=10, fontweight="bold", color=color)
-
         plt.tight_layout()
-        plt.savefig(FIGURES_DIR / f"fig_zs_vs_ft_{pred_len}.png", bbox_inches="tight")
+        plt.savefig(FIGURES_DIR / f"fig_zs_vs_ft_{pred_len}.png",
+                    bbox_inches="tight")
         plt.close()
         print(f"  Saved fig_zs_vs_ft_{pred_len}.png")
+
+    # Combined 2-panel version (24h | 72h side-by-side)
+    if len(panels) == 2:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 4.5), sharey=False)
+        for ax, (pred_len, mz, mf), idx in zip(axes, panels, range(2)):
+            x = np.arange(len(mz))
+            width = 0.35
+            zs_labels = [m.split("(")[0].strip() for m in mz["model"]]
+            ax.bar(x - width / 2, mz["MAE"].values, width,
+                   label="Zero-shot", color="#1f77b4", edgecolor="white")
+            ax.bar(x + width / 2, mf["MAE"].values, width,
+                   label="Fine-tuned", color="#ff7f0e", edgecolor="white")
+            ax.set_ylabel("MAE (W/m²)")
+            ax.set_title(f"({chr(97+idx)}) {pred_len} horizon", fontsize=12)
+            ax.set_xticks(x); ax.set_xticklabels(zs_labels)
+            for i, (zs_val, ft_val) in enumerate(zip(mz["MAE"].values,
+                                                     mf["MAE"].values)):
+                imp = (1 - ft_val / zs_val) * 100
+                color = "green" if imp > 0 else "red"
+                ax.text(i, max(zs_val, ft_val) + 0.5, f"{imp:+.1f}%",
+                        ha="center", fontsize=9, fontweight="bold",
+                        color=color)
+            if idx == 0:
+                ax.legend(loc="upper left", fontsize=9)
+        plt.tight_layout()
+        plt.savefig(FIGURES_DIR / "fig_zs_vs_ft_both.png",
+                    bbox_inches="tight", dpi=150)
+        plt.close()
+        print("  Saved fig_zs_vs_ft_both.png")
 
 
 def fig_seasonal_heatmap(results):
@@ -166,37 +188,71 @@ def fig_seasonal_heatmap(results):
         print("  No results for seasonal heatmap")
         return
 
+    pivots = []
     for pred_len in ["24h", "72h"]:
         subset = df[df["horizon"] == pred_len]
         if subset.empty:
             continue
-
         pivot = subset.pivot_table(index="model", columns="season", values="MAE")
         if "all" in pivot.columns:
             pivot = pivot[["dry", "wet", "all"]]
+        pivots.append((pred_len, pivot))
 
+        # Per-horizon (kept for backward compatibility)
         fig, ax = plt.subplots(figsize=(8, max(6, len(pivot) * 0.5)))
         im = ax.imshow(pivot.values, cmap="YlOrRd", aspect="auto")
-
         ax.set_xticks(range(len(pivot.columns)))
         ax.set_xticklabels([c.title() for c in pivot.columns])
         ax.set_yticks(range(len(pivot.index)))
         ax.set_yticklabels(pivot.index)
-
-        # Add text
         for i in range(len(pivot.index)):
             for j in range(len(pivot.columns)):
                 val = pivot.values[i, j]
                 color = "white" if val > pivot.values.mean() else "black"
                 ax.text(j, i, f"{val:.1f}", ha="center", va="center",
                         color=color, fontsize=10)
-
-        ax.set_title(f"MAE by Season — {pred_len} Horizon")
+        ax.set_title(f"MAE by Season - {pred_len} Horizon")
         plt.colorbar(im, ax=ax, label="MAE (W/m²)")
         plt.tight_layout()
-        plt.savefig(FIGURES_DIR / f"fig_seasonal_heatmap_{pred_len}.png", bbox_inches="tight")
+        plt.savefig(FIGURES_DIR / f"fig_seasonal_heatmap_{pred_len}.png",
+                    bbox_inches="tight")
         plt.close()
         print(f"  Saved fig_seasonal_heatmap_{pred_len}.png")
+
+    # Combined 2-panel version
+    if len(pivots) == 2:
+        # use a global vmin/vmax so colours are comparable across panels
+        vmin = min(p.values.min() for _, p in pivots)
+        vmax = max(p.values.max() for _, p in pivots)
+        n_models = max(len(p) for _, p in pivots)
+        fig, axes = plt.subplots(
+            1, 2, figsize=(12, max(5, n_models * 0.5)),
+            gridspec_kw={"wspace": 0.08},
+        )
+        last_im = None
+        for ax, (pred_len, pivot), idx in zip(axes, pivots, range(2)):
+            last_im = ax.imshow(pivot.values, cmap="YlOrRd",
+                                aspect="auto", vmin=vmin, vmax=vmax)
+            ax.set_xticks(range(len(pivot.columns)))
+            ax.set_xticklabels([c.title() for c in pivot.columns])
+            if idx == 0:
+                ax.set_yticks(range(len(pivot.index)))
+                ax.set_yticklabels(pivot.index)
+            else:
+                ax.set_yticks([])
+            for i in range(len(pivot.index)):
+                for j in range(len(pivot.columns)):
+                    val = pivot.values[i, j]
+                    color = "white" if val > (vmin + vmax) / 2 else "black"
+                    ax.text(j, i, f"{val:.1f}", ha="center", va="center",
+                            color=color, fontsize=9)
+            ax.set_title(f"({chr(97+idx)}) {pred_len} horizon", fontsize=12)
+        fig.colorbar(last_im, ax=axes, label="MAE (W/m²)",
+                     fraction=0.025, pad=0.02)
+        plt.savefig(FIGURES_DIR / "fig_seasonal_heatmap_both.png",
+                    bbox_inches="tight", dpi=150)
+        plt.close()
+        print("  Saved fig_seasonal_heatmap_both.png")
 
 
 def fig_ablation_steps(results):
