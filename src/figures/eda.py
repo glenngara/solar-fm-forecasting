@@ -92,30 +92,56 @@ def fig2_daily_irradiance_heatmap(df):
 
 
 def fig3_wet_vs_dry_timeseries(df):
-    """Side-by-side: one week in dry season vs one week in wet season."""
-    dry_week = df["2025-03-01":"2025-03-07"]["ALLSKY_SFC_SW_DWN"]
-    wet_week = df["2025-08-01":"2025-08-07"]["ALLSKY_SFC_SW_DWN"]
+    """Mean diurnal curve for the dry vs wet season, with 25-75 percentile
+    bands. Aggregates over all years to remove single-week sampling bias.
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4), sharey=True)
+    Dry season: December-May. Wet/monsoon: June-November.
+    """
+    s = df["ALLSKY_SFC_SW_DWN"].copy()
+    months = s.index.month
+    hours = s.index.hour
 
-    ax1.plot(range(len(dry_week)), dry_week.values, color="#FF9800", linewidth=0.8)
-    ax1.fill_between(range(len(dry_week)), dry_week.values, alpha=0.3, color="#FF9800")
-    ax1.set_title("Dry Season — March 1–7, 2025")
-    ax1.set_xlabel("Hour")
-    ax1.set_ylabel("Solar Irradiance (W/m²)")
-    ax1.set_ylim(0)
-    ax1.grid(alpha=0.3)
+    is_dry = months.isin([12, 1, 2, 3, 4, 5])
+    is_wet = months.isin([6, 7, 8, 9, 10, 11])
 
-    ax2.plot(range(len(wet_week)), wet_week.values, color="#2196F3", linewidth=0.8)
-    ax2.fill_between(range(len(wet_week)), wet_week.values, alpha=0.3, color="#2196F3")
-    ax2.set_title("Wet/Monsoon Season — August 1–7, 2025")
-    ax2.set_xlabel("Hour")
-    ax2.set_ylim(0)
-    ax2.grid(alpha=0.3)
+    def _per_hour_stats(mask):
+        sub = s[mask]
+        grp = sub.groupby(sub.index.hour)
+        return grp.mean(), grp.quantile(0.25), grp.quantile(0.75)
 
-    fig.suptitle("Solar Irradiance: Dry vs Wet Season at Laguna de Bay", fontsize=14, y=1.02)
+    dry_mean, dry_lo, dry_hi = _per_hour_stats(is_dry)
+    wet_mean, wet_lo, wet_hi = _per_hour_stats(is_wet)
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+
+    h = np.arange(24)
+    ax.plot(h, dry_mean.values, color="#FF9800", linewidth=2.0,
+            label="Dry season (Dec-May)")
+    ax.fill_between(h, dry_lo.values, dry_hi.values,
+                    alpha=0.25, color="#FF9800",
+                    label="Dry interquartile range")
+
+    ax.plot(h, wet_mean.values, color="#2196F3", linewidth=2.0,
+            label="Wet/monsoon season (Jun-Nov)")
+    ax.fill_between(h, wet_lo.values, wet_hi.values,
+                    alpha=0.25, color="#2196F3",
+                    label="Wet interquartile range")
+
+    ax.set_xlabel("Hour of day (local time)")
+    ax.set_ylabel("Solar irradiance (W/m²)")
+    ax.set_xlim(0, 23)
+    ax.set_xticks(range(0, 24, 3))
+    ax.set_ylim(0)
+    ax.grid(alpha=0.3)
+    ax.legend(loc="upper right", fontsize=9, framealpha=0.9)
+
+    fig.suptitle(
+        "Mean diurnal solar irradiance at Laguna de Bay (2020-2025)",
+        fontsize=13, y=1.02,
+    )
     fig.tight_layout()
-    fig.savefig(FIG_DIR / "fig3_wet_vs_dry_timeseries.png", bbox_inches="tight")
+    fig.savefig(FIG_DIR / "fig3_wet_vs_dry_timeseries.png",
+                bbox_inches="tight")
     plt.close()
     print("Saved fig3_wet_vs_dry_timeseries.png")
 
