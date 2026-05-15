@@ -11,7 +11,7 @@ This repository contains **only** the code, data manifests, and configuration ne
 
 Do pre-trained time-series foundation models — **Chronos-2**, **Chronos-T5-Small**, **Chronos-T5-Base**, and **Moirai-2.0-Small** — match or outperform tuned classical baselines (Persistence, XGBoost, LSTM) for short-horizon (24 h) and medium-range (72 h) solar irradiance forecasting at a tropical-monsoon site? Does in-domain fine-tuning of Chronos-T5 close any residual gap?
 
-> **Scope note.** TimesFM-2.5 and TTM-R2 were initially included but excluded from the paper for methodological reasons (unresolved input-scaling and API-versioning issues that produced predictions inconsistent with their reported benchmarks). Their evaluator code remains in `src/eval/zero_shot.py` for completeness but is **not** invoked by the reproducibility pipeline.
+> **Scope note.** TimesFM-2.5 and TTM-R2 were considered during preliminary integration but are not included in the paper. Their evaluator code remains in `src/eval/zero_shot.py` for future work but is **not** invoked by the reproducibility pipeline.
 
 ## Reproducibility
 
@@ -185,11 +185,12 @@ Data is downloaded automatically by the pipeline via `make data`. No manual down
 | Chronos-T5 Base | Amazon | ~200M | T5 enc-dec | Yes |
 | Moirai-2.0 Small | Salesforce | ~11M | Decoder-only | No (zero-shot) |
 
-**Excluded from the paper** (kept in code for future work, not reproduced by `make all`):
-| Model | Provider | Reason for exclusion |
-|-------|----------|----------------------|
-| TimesFM 2.5 | Google | Unresolved input-normalisation / API-versioning issues |
-| TTM-R2 | IBM | Missing instance-scaling on raw irradiance; deferred to follow-up work |
+**Considered for future work** (not reproduced by `make all` and not reported in the paper):
+
+| Model | Provider |
+|-------|----------|
+| TimesFM 2.5 | Google |
+| TTM-R2 | IBM |
 
 **Baselines:**
 
