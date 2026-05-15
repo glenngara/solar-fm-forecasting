@@ -150,7 +150,7 @@ def fig_zeroshot_vs_finetuned(results):
 
     # Combined 2-panel version (24h | 72h side-by-side)
     if len(panels) == 2:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 4.5), sharey=False)
+        fig, axes = plt.subplots(1, 2, figsize=(14, 3.4), sharey=False)
         for ax, (pred_len, mz, mf), idx in zip(axes, panels, range(2)):
             x = np.arange(len(mz))
             width = 0.35
@@ -226,7 +226,7 @@ def fig_seasonal_heatmap(results):
         vmax = max(p.values.max() for _, p in pivots)
         n_models = max(len(p) for _, p in pivots)
         fig, axes = plt.subplots(
-            1, 2, figsize=(12, max(5, n_models * 0.5)),
+            1, 2, figsize=(14, max(3.8, n_models * 0.42)),
             gridspec_kw={"wspace": 0.08},
         )
         last_im = None
@@ -460,7 +460,7 @@ def fig_dm_significance(results):
     n = len(models)
 
     fig, axes = plt.subplots(
-        1, 2, figsize=(max(13, n * 1.7), max(6.0, n * 0.75)),
+        1, 2, figsize=(max(14, n * 1.9), max(4.5, n * 0.55)),
         gridspec_kw={"wspace": 0.08},
     )
     last_im = None
