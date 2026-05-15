@@ -389,8 +389,25 @@ def fig_dm_significance(results):
                     color = "white" if p < 0.05 else "black"
                     ax.text(j, i, sig, ha="center", va="center", color=color, fontsize=9)
 
-        ax.set_title(f"Statistical Significance (DM Test) — {pred_len}")
+        ax.set_title(f"Statistical Significance (DM Test) - {pred_len}")
         plt.colorbar(im, ax=ax, label="p-value")
+
+        # Inset legend explaining the significance markers, placed
+        # below the matrix (outside it) so it never overlaps the cells
+        # or the colorbar.
+        legend_text = (
+            r"$^{***}p<0.001$    "
+            r"$^{**}p<0.01$    "
+            r"$^{*}p<0.05$    "
+            r"ns: $p\geq 0.05$"
+        )
+        plt.figtext(
+            0.5, -0.04, legend_text,
+            ha="center", va="top", fontsize=9,
+            bbox=dict(boxstyle="round,pad=0.3",
+                      facecolor="white", edgecolor="0.6", linewidth=0.6),
+        )
+
         plt.tight_layout()
         plt.savefig(FIGURES_DIR / f"fig_dm_significance_{pred_len}.png", bbox_inches="tight")
         plt.close()
