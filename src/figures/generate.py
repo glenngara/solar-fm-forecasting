@@ -352,66 +352,90 @@ def fig_forecast_examples(results):
         print(f"  Saved fig_forecast_examples_{pred_len}h.png")
 
 
+def _draw_dm_panel(ax, dm_df, models, title, show_yticks=True):
+    """Draw a single DM significance heatmap panel onto a given axes."""
+    n = len(models)
+    matrix = np.ones((n, n))
+    for _, row in dm_df.iterrows():
+        i = models.index(row["model_A"])
+        j = models.index(row["model_B"])
+        matrix[i, j] = row["p_value"]
+        matrix[j, i] = row["p_value"]
+
+    im = ax.imshow(matrix, cmap="RdYlGn_r", vmin=0, vmax=0.1, aspect="auto")
+    ax.set_xticks(range(n))
+    ax.set_xticklabels(models, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(n))
+    if show_yticks:
+        ax.set_yticklabels(models, fontsize=8)
+    else:
+        ax.set_yticklabels([])
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                p = matrix[i, j]
+                sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
+                color = "white" if p < 0.05 else "black"
+                ax.text(j, i, sig, ha="center", va="center",
+                        color=color, fontsize=8)
+    ax.set_title(title, fontsize=12)
+    return im
+
+
 def fig_dm_significance(results):
-    """Fig: Diebold-Mariano test significance matrix."""
-    for pred_len in ["24h", "72h"]:
-        dm_key = f"dm_tests_all_{pred_len}"
-        if dm_key not in results:
-            dm_key = f"dm_tests_{pred_len}"
-        if dm_key not in results:
-            continue
+    """Fig: Diebold-Mariano test significance matrices for both horizons,
+    arranged as a single side-by-side figure so readers see how the
+    significance pattern changes between 24 h and 72 h.
+    """
+    horizons = ["24h", "72h"]
+    panels = []
+    for h in horizons:
+        key = f"dm_tests_all_{h}"
+        if key not in results:
+            key = f"dm_tests_{h}"
+        if key not in results:
+            return
+        df = results[key]
+        models = sorted(set(df["model_A"]) | set(df["model_B"]))
+        panels.append((h, df, models))
 
-        dm_df = results[dm_key]
-        models = sorted(set(dm_df["model_A"]) | set(dm_df["model_B"]))
+    # Use the union of model lists so both panels share axes.
+    models = sorted(set(panels[0][2]) | set(panels[1][2]))
+    n = len(models)
 
-        # Build matrix
-        n = len(models)
-        matrix = np.ones((n, n))  # 1 = not significant
-        for _, row in dm_df.iterrows():
-            i = models.index(row["model_A"])
-            j = models.index(row["model_B"])
-            matrix[i, j] = row["p_value"]
-            matrix[j, i] = row["p_value"]
-
-        fig, ax = plt.subplots(figsize=(max(8, n), max(6, n * 0.8)))
-        im = ax.imshow(matrix, cmap="RdYlGn_r", vmin=0, vmax=0.1, aspect="auto")
-
-        ax.set_xticks(range(n))
-        ax.set_xticklabels(models, rotation=45, ha="right", fontsize=9)
-        ax.set_yticks(range(n))
-        ax.set_yticklabels(models, fontsize=9)
-
-        for i in range(n):
-            for j in range(n):
-                if i != j:
-                    p = matrix[i, j]
-                    sig = "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
-                    color = "white" if p < 0.05 else "black"
-                    ax.text(j, i, sig, ha="center", va="center", color=color, fontsize=9)
-
-        ax.set_title(f"Statistical Significance (DM Test) - {pred_len}")
-        plt.colorbar(im, ax=ax, label="p-value")
-
-        # Inset legend explaining the significance markers, placed
-        # below the matrix (outside it) so it never overlaps the cells
-        # or the colorbar.
-        legend_text = (
-            r"$^{***}p<0.001$    "
-            r"$^{**}p<0.01$    "
-            r"$^{*}p<0.05$    "
-            r"ns: $p\geq 0.05$"
-        )
-        plt.figtext(
-            0.5, -0.04, legend_text,
-            ha="center", va="top", fontsize=9,
-            bbox=dict(boxstyle="round,pad=0.3",
-                      facecolor="white", edgecolor="0.6", linewidth=0.6),
+    fig, axes = plt.subplots(
+        1, 2, figsize=(max(13, n * 1.7), max(6.0, n * 0.75)),
+        gridspec_kw={"wspace": 0.08},
+    )
+    last_im = None
+    for ax, (h, df, _), idx in zip(axes, panels, range(2)):
+        last_im = _draw_dm_panel(
+            ax, df, models, title=f"({chr(97 + idx)}) {h} horizon",
+            show_yticks=(idx == 0),
         )
 
-        plt.tight_layout()
-        plt.savefig(FIGURES_DIR / f"fig_dm_significance_{pred_len}.png", bbox_inches="tight")
-        plt.close()
-        print(f"  Saved fig_dm_significance_{pred_len}.png")
+    # Single colorbar shared by both panels
+    cbar = fig.colorbar(last_im, ax=axes, label="p-value",
+                        fraction=0.025, pad=0.02)
+
+    # Marker-key legend placed well below the rotated x-axis labels
+    legend_text = (
+        r"$^{***}p<0.001$    "
+        r"$^{**}p<0.01$    "
+        r"$^{*}p<0.05$    "
+        r"ns: $p\geq 0.05$"
+    )
+    plt.figtext(
+        0.5, -0.18, legend_text,
+        ha="center", va="top", fontsize=10,
+        bbox=dict(boxstyle="round,pad=0.35",
+                  facecolor="white", edgecolor="0.6", linewidth=0.6),
+    )
+
+    out = FIGURES_DIR / "fig_dm_significance_both.png"
+    plt.savefig(out, bbox_inches="tight", dpi=150)
+    plt.close()
+    print(f"  Saved fig_dm_significance_both.png")
 
 
 def main():
